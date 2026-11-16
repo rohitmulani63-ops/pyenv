@@ -398,7 +398,7 @@ has_checksum_support() {
 
   if [[ -z ${!has_checksum_var+defined} ]]; then
     # convert any nonzero exit code to 1 because 2 has special meaning
-    printf -v "$has_checksum_var" "$(echo test | "$checksum_command" >/dev/null && rc=$? || rc=$?; echo $(( $rc!=0 )))"
+    printf -v "$has_checksum_var" "$(trap - ERR; echo test | "$checksum_command" >/dev/null && rc=$? || rc=$?; echo $(( $rc!=0 )))"
   fi
   return "${!has_checksum_var}"
 }
