@@ -1,0 +1,113 @@
+# Fork-only temp CI (rohitmulani63-ops/pyenv), never part of a PR.
+# rustpython-dev after review (shared version helper): upstream bats suites,
+# the same build and checks as upstream modified_scripts_build.yml, plus a real
+# `pip install` from PyPI (TLS through RustPython's rustls/aws-lc ssl).
+name: ci-check-rustpython-dev-4
+on:
+  push:
+    branches:
+      - ci-check-rustpython-dev-4
+permissions:
+  contents: read
+jobs:
+  pyenv_tests:
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-24.04
+          - macos-15
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Install prerequisites
+        run: |
+          if test "$RUNNER_OS" == "macOS"; then
+            brew install coreutils fish parallel
+          fi
+      - name: Run tests
+        run: |
+          make test
+  pyenv_tests_docker:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - run: |
+          make test-docker
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-24.04
+          - ubuntu-24.04-arm
+          - macos-15
+          - macos-26
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - run: |
+          #envvars
+          export PYENV_ROOT="$GITHUB_WORKSPACE"
+          echo "PYENV_ROOT=$PYENV_ROOT" >> $GITHUB_ENV
+          echo "$PYENV_ROOT/shims:$PYENV_ROOT/bin" >> $GITHUB_PATH
+      - run: |
+          #prerequisites (same as upstream)
+          if test "$RUNNER_OS" == "macOS"; then
+            brew install openssl readline sqlite3 xz tcl-tk@8 libb2 zstd gdbm
+          else
+            pyenv install-prerequisites --all
+          fi
+          command -v cargo && cargo --version && rustc --version || echo "no cargo on PATH"
+      - run: |
+          #build (same as upstream)
+          pyenv --debug install rustpython-dev && rc=$? || rc=$?
+          if [[ $rc -ne 0 ]]; then echo config.log:; cat $TMPDIR/python-build*/*/config.log; false; fi
+          pyenv global rustpython-dev
+      - run: |
+          #print version (same as upstream)
+          python --version
+          python -m pip --version
+      - env:
+          EXPECTED_PYTHON: rustpython-dev
+        run: |
+          #check (same as upstream)
+          python -c 'if True:
+            import os, sys, os.path
+            correct_dir = os.path.join(
+              os.environ["PYENV_ROOT"],
+              "versions",
+              os.environ["EXPECTED_PYTHON"],
+              "bin")
+            assert os.path.dirname(sys.executable) == correct_dir'
+      - run: |
+          #extra: stdlib comes from the prefix
+          python -c 'if True:
+            import os, sys
+            prefix = os.path.realpath(os.path.join(os.environ["PYENV_ROOT"], "versions", "rustpython-dev"))
+            print(sys.version)
+            print("prefix", sys.prefix, "os", os.__file__)
+            assert os.path.realpath(sys.prefix) == prefix, sys.prefix
+            assert os.path.realpath(os.__file__).startswith(os.path.join(prefix, "lib", "python")), os.__file__
+            print("OK")'
+          ls -l "$PYENV_ROOT/versions/rustpython-dev/bin"
+      - run: |
+          #extra: real pip install from PyPI over HTTPS
+          python -c 'import ssl; print(ssl.OPENSSL_VERSION if hasattr(ssl, "OPENSSL_VERSION") else "ssl ok")'
+          python -m pip install six
+          python -c 'import six; print("six", six.__version__, six.__file__)'
+      - name: venv + pip install in it (informational)
+        continue-on-error: true
+        run: |
+          python -m venv "$RUNNER_TEMP/venv"
+          "$RUNNER_TEMP/venv/bin/python" -m pip install six
+          "$RUNNER_TEMP/venv/bin/python" -c 'import six; print("venv six", six.__version__)'
