@@ -1,0 +1,84 @@
+# Fork-only temp CI (rohitmulani63-ops/pyenv), never part of a PR.
+# Checks rustpython-dev (branch rustpython-dev): upstream bats suites + a real
+# python-build of rustpython-dev, then runs the installed interpreter.
+name: ci-check-rustpython-dev
+on:
+  push:
+    branches:
+      - ci-check-rustpython-dev
+      - ci-check-rustpython-dev-fail
+permissions:
+  contents: read
+jobs:
+  pyenv_tests:
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-24.04
+          - macos-15
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Install prerequisites
+        run: |
+          if test "$RUNNER_OS" == "macOS"; then
+            brew install coreutils fish parallel
+          fi
+      - name: Run tests
+        run: |
+          make test
+  pyenv_tests_docker:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - run: |
+          make test-docker
+  build_rustpython_dev:
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-24.04
+          - macos-15
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Rust toolchain
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          cargo --version
+          rustc --version
+      - name: python-build rustpython-dev
+        run: |
+          plugins/python-build/bin/python-build --verbose rustpython-dev "$RUNNER_TEMP/rp"
+      - name: Check the installed interpreter
+        run: |
+          ls -l "$RUNNER_TEMP/rp/bin"
+          ls "$RUNNER_TEMP/rp/lib"
+          "$RUNNER_TEMP/rp/bin/python" -c '
+          import sys, os, json, ssl
+          prefix = os.path.realpath(sys.argv[1])
+          print(sys.version)
+          print("prefix", sys.prefix)
+          print("os", os.__file__)
+          assert os.path.realpath(sys.prefix) == prefix, sys.prefix
+          assert os.path.realpath(os.__file__).startswith(os.path.join(prefix, "lib", "python")), os.__file__
+          print("OK")
+          ' "$RUNNER_TEMP/rp"
+          "$RUNNER_TEMP/rp/bin/python3" -c 'print("python3 link OK")'
+      - name: venv (informational)
+        continue-on-error: true
+        run: |
+          "$RUNNER_TEMP/rp/bin/python" -m venv "$RUNNER_TEMP/venv"
+          "$RUNNER_TEMP/venv/bin/python" -c 'import sys; print("venv", sys.prefix)'
