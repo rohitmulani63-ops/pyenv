@@ -295,6 +295,7 @@ OUT
 
   assert [ ! -e "$HOME/.bashrc" ]
   assert [ ! -e "$HOME/missing" ]
+  assert_equal "$HOME/missing/profile" "$(readlink "$HOME/.profile")"
 }
 
 @test "install treats PYENV_ROOT as pyenv-related code" {
@@ -313,6 +314,19 @@ OUT
   assert_failure
   assert_line "pyenv: failed to inspect $HOME/.bashrc"
 
+  assert [ ! -e "$HOME/.profile" ]
+}
+
+@test "install refuses a named pipe as a startup file" {
+  mkdir -p "$HOME"
+  mkfifo "$HOME/.bashrc"
+
+  run pyenv-init --install bash
+  assert_failure
+  assert_line "pyenv: failed to inspect $HOME/.bashrc"
+  assert_line "pyenv: no files were changed."
+
+  assert [ -p "$HOME/.bashrc" ]
   assert [ ! -e "$HOME/.profile" ]
 }
 

@@ -375,13 +375,19 @@ function check_startup_file() {
     return
   fi
 
+  # Reading a named pipe would block, and some greps report no match
+  # for a directory instead of an error.
+  if [[ ! -f $file ]]; then
+    echo "pyenv: failed to inspect $file" >&2
+    return 1
+  fi
+
   if grep -Fi pyenv "$file" >/dev/null; then
     echo "pyenv: cannot automatically apply changes to $file: it appears to already contain Pyenv-related code." >&2
     return 1
   else
     grep_status=$?
-    # Some greps report no match for a directory instead of an error.
-    if [[ $grep_status != 1 || ! -f $file ]]; then
+    if [[ $grep_status != 1 ]]; then
       echo "pyenv: failed to inspect $file" >&2
       return "$grep_status"
     fi
