@@ -1,7 +1,7 @@
 name: pyenv_tests
 on:
   push:
-    branches: [master]
+    branches: [master, ci-check-init-install]
   pull_request: {}
 
 permissions:
