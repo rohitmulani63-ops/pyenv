@@ -1,8 +1,9 @@
 name: pyenv_tests
 on:
   push:
-    branches: [master]
+    branches: [master, ci-check-console-commands-4]
   pull_request: {}
+  workflow_dispatch: {}
 
 permissions:
   contents: read  #  to fetch code (actions/checkout)
