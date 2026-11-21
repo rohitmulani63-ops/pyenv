@@ -1,7 +1,7 @@
 name: pyenv_tests
 on:
   push:
-    branches: [master]
+    branches: [master, ci-check-readline-once, ci-check-readline-once-mustfail]
   pull_request: {}
 
 permissions:

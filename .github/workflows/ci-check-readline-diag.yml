@@ -1,0 +1,40 @@
+name: ci-check-readline-diag
+# TEMP, fork only: show what Homebrew's readline installs and what python-build's
+# readline functions export on a real macOS runner (not for upstream).
+on:
+  push:
+    branches: [ci-check-readline-once, ci-check-readline-once-mustfail]
+
+permissions:
+  contents: read
+
+jobs:
+  diag:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-15, macos-15-intel, macos-26]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Homebrew readline headers
+        run: |
+          brew list --versions readline || brew install readline
+          prefix="$(brew --prefix readline)"
+          echo "prefix: $prefix"
+          ls -la "$prefix/include/readline" || true
+          if [ -e "$prefix/include/readline/rlconf.h" ]; then echo "RLCONF: present"; else echo "RLCONF: missing"; fi
+      - name: Flags after has_broken_mac_readline + use_homebrew_readline
+        run: |
+          set +e
+          unset CPPFLAGS LDFLAGS
+          cat > /tmp/def <<'DEF'
+          has_broken_mac_readline
+          echo "after check: CPPFLAGS=[$CPPFLAGS] LDFLAGS=[$LDFLAGS]"
+          use_homebrew_readline
+          echo "after 2nd call: CPPFLAGS=[$CPPFLAGS] LDFLAGS=[$LDFLAGS]"
+          DEF
+          PREFIX_DIR="$RUNNER_TEMP/prefix"
+          mkdir -p "$PREFIX_DIR"
+          plugins/python-build/bin/python-build /tmp/def "$PREFIX_DIR"
+          echo "exit: $?"
