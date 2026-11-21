@@ -1157,6 +1157,26 @@ OUT
   unstub brew
 }
 
+@test "Homebrew readline flags are added only once" {
+  local brew_prefix="$BATS_TEST_TMPDIR/homebrew-readline"
+  mkdir -p "$brew_prefix/include"
+  for i in {1..2}; do stub brew "--prefix readline : echo '$brew_prefix'"; done
+
+  run_inline_definition <<'DEF'
+can_use_homebrew() { return 0; }
+use_homebrew_readline
+use_homebrew_readline
+printf '%s\n' "$CPPFLAGS" "$LDFLAGS"
+DEF
+  assert_success
+  assert_output <<OUT
+python-build: use readline from homebrew
+-I$brew_prefix/include -I${INSTALL_ROOT}/include
+-L$brew_prefix/lib -L${INSTALL_ROOT}/lib -Wl,-rpath,${INSTALL_ROOT}/lib
+OUT
+  unstub brew
+}
+
 @test "tcl-tk is linked from Homebrew via --with-tcl-*" {
   cached_tarball "Python-3.6.2"
   stub_tcltk "${tcl_tk_libdir:=$BATS_TEST_TMPDIR/homebrew-tcl-tk}"

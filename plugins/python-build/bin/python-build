@@ -1785,9 +1785,12 @@ use_homebrew_readline() {
   if ! configured_with_package_dir "python" "readline/rlconf.h"; then
     local libdir="$(brew --prefix readline 2>/dev/null || true)"
     if [ -d "$libdir" ]; then
-      echo "python-build: use readline from homebrew"
-      export CPPFLAGS="-I$libdir/include${CPPFLAGS:+ $CPPFLAGS}"
-      export LDFLAGS="-L$libdir/lib${LDFLAGS:+ $LDFLAGS}"
+      # Can be called twice (via `has_broken_mac_readline`, then for Python), add the flags once
+      if [[ " $CPPFLAGS " != *" -I$libdir/include "* || " $LDFLAGS " != *" -L$libdir/lib "* ]]; then
+        echo "python-build: use readline from homebrew"
+        export CPPFLAGS="-I$libdir/include${CPPFLAGS:+ $CPPFLAGS}"
+        export LDFLAGS="-L$libdir/lib${LDFLAGS:+ $LDFLAGS}"
+      fi
       lock_in homebrew
     else
       return 1
