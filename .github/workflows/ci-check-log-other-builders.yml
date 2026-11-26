@@ -1,0 +1,70 @@
+# Fork-only temp CI (rohitmulani63-ops/pyenv), never part of a PR.
+# #2999 step 2: log_and_run for the other builders. Upstream bats suites,
+# plus real installs that show the new "=>" console lines.
+name: ci-check-log-other-builders
+on:
+  push:
+    branches:
+      - ci-check-log-other-builders
+permissions:
+  contents: read
+jobs:
+  pyenv_tests:
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-24.04
+          - macos-15
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Install prerequisites
+        run: |
+          if test "$RUNNER_OS" == "macOS"; then
+            brew install coreutils fish parallel
+          fi
+      - name: Run tests
+        run: |
+          make test
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version:
+          - micropython-1.28.0
+          - rustpython-dev
+        os:
+          - ubuntu-24.04
+          - macos-15
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - run: |
+          export PYENV_ROOT="$GITHUB_WORKSPACE"
+          echo "PYENV_ROOT=$PYENV_ROOT" >> $GITHUB_ENV
+          echo "$PYENV_ROOT/shims:$PYENV_ROOT/bin" >> $GITHUB_PATH
+      - run: |
+          if test "$RUNNER_OS" == "macOS"; then
+            brew install openssl readline sqlite3 xz tcl-tk@8 libb2 zstd gdbm
+          else
+            pyenv install-prerequisites --all
+          fi
+          if [[ "${{ matrix.python-version }}" == rustpython-* ]]; then
+            rustup update stable
+          fi
+      - name: install (console output shows the "=>" lines)
+        run: |
+          set -o pipefail
+          pyenv install ${{ matrix.python-version }} 2>&1 | tee "$RUNNER_TEMP/console.txt"
+          echo "---- console => lines:"
+          grep '^=> ' "$RUNNER_TEMP/console.txt"
+          grep -q '^=> ' "$RUNNER_TEMP/console.txt"
+          pyenv global ${{ matrix.python-version }}
+          python -c 'import sys; print(sys.version)'
