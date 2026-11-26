@@ -1,0 +1,107 @@
+# Fork-only temp CI (rohitmulani63-ops/pyenv), never part of a PR.
+# RustPython releases: run add_rustpython.py, then build each generated
+# definition with the same steps as upstream modified_scripts_build.yml.
+name: ci-check-rustpython-releases
+on:
+  push:
+    branches:
+      - ci-check-rustpython-releases
+permissions:
+  contents: read
+jobs:
+  generate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - run: python3 -m pip install requests
+      - name: dry run
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python3 plugins/python-build/scripts/add_rustpython.py --dry-run --verbose
+      - name: write
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python3 plugins/python-build/scripts/add_rustpython.py --verbose
+      - name: second run adds nothing (exit 1)
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          python3 plugins/python-build/scripts/add_rustpython.py && rc=$? || rc=$?
+          echo "exit $rc"; [[ $rc -eq 1 ]]
+      - run: |
+          cd plugins/python-build/share/python-build
+          for f in rustpython-[0-9]*; do echo "== $f"; cat "$f"; done
+          sha256sum rustpython-[0-9]*
+      - uses: actions/upload-artifact@v4
+        with:
+          name: definitions
+          path: plugins/python-build/share/python-build/rustpython-[0-9]*
+  build:
+    needs: generate
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version:
+          - rustpython-0.3.0
+          - rustpython-0.3.1
+          - rustpython-0.4.0
+          - rustpython-0.5.0
+          - rustpython-0.6.0
+        os:
+          - ubuntu-24.04
+          - ubuntu-24.04-arm
+          - macos-15
+          - macos-15-intel
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: definitions
+          path: plugins/python-build/share/python-build
+      - run: |
+          #envvars
+          export PYENV_ROOT="$GITHUB_WORKSPACE"
+          echo "PYENV_ROOT=$PYENV_ROOT" >> $GITHUB_ENV
+          echo "$PYENV_ROOT/shims:$PYENV_ROOT/bin" >> $GITHUB_PATH
+      - run: |
+          #prerequisites (same as upstream)
+          if test "$RUNNER_OS" == "macOS"; then
+            brew install openssl readline sqlite3 xz tcl-tk@8 libb2 zstd gdbm
+          else
+            pyenv install-prerequisites --all
+          fi
+          rustup update stable
+          cargo --version; rustc --version
+      - run: |
+          #build (same as upstream)
+          pyenv --debug install ${{ matrix.python-version }} && rc=$? || rc=$?
+          if [[ $rc -ne 0 ]]; then echo config.log:; cat $TMPDIR/python-build*/*/config.log; false; fi
+          pyenv global ${{ matrix.python-version }}
+      - run: |
+          #print version (same as upstream)
+          python --version
+          python -m pip --version
+      - env:
+          EXPECTED_PYTHON: ${{ matrix.python-version }}
+        run: |
+          #check (same as upstream)
+          python -c 'if True:
+            import os, sys, os.path
+            correct_dir = os.path.join(
+              os.environ["PYENV_ROOT"],
+              "versions",
+              os.environ["EXPECTED_PYTHON"],
+              "bin")
+            assert os.path.dirname(sys.executable) == correct_dir'
+      - name: pip install from PyPI (informational)
+        continue-on-error: true
+        run: |
+          python -m pip install six
+          python -c 'import six; print("six", six.__version__)'
