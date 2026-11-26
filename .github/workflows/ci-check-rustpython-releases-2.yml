@@ -1,0 +1,103 @@
+# Fork-only temp CI (rohitmulani63-ops/pyenv), never part of a PR.
+# RustPython releases pinned with install_git "TAG:SHA": the script must
+# regenerate the committed files exactly, both build with the same steps as
+# upstream modified_scripts_build.yml, and a wrong SHA must fail the install.
+name: ci-check-rustpython-releases-2
+on:
+  push:
+    branches:
+      - ci-check-rustpython-releases-2
+permissions:
+  contents: read
+jobs:
+  generate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - run: python3 -m pip install requests
+      - name: regenerate and compare with the committed files
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          d=plugins/python-build/share/python-build
+          mkdir "$RUNNER_TEMP/committed"
+          mv $d/rustpython-[0-9]* "$RUNNER_TEMP/committed/"
+          python3 plugins/python-build/scripts/add_rustpython.py --dry-run --verbose
+          python3 plugins/python-build/scripts/add_rustpython.py --verbose
+          ls $d/rustpython-*
+          for f in "$RUNNER_TEMP"/committed/*; do diff -u "$f" "$d/${f##*/}"; done
+          [[ $(ls $d/rustpython-[0-9]* | wc -l) -eq $(ls "$RUNNER_TEMP"/committed | wc -l) ]]
+          python3 plugins/python-build/scripts/add_rustpython.py && rc=$? || rc=$?
+          echo "second run exit $rc"; [[ $rc -eq 1 ]]
+  wrong_sha_fails:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - run: |
+          export PYENV_ROOT="$GITHUB_WORKSPACE"
+          export PATH="$PYENV_ROOT/bin:$PATH"
+          d=plugins/python-build/share/python-build
+          sed 's/b2626c56dedfbd7d6f516e53f2fc392a514a0b31/0000000000000000000000000000000000000000/' $d/rustpython-0.6.0 > $d/rustpython-badsha
+          cat $d/rustpython-badsha
+          pyenv install rustpython-badsha > "$RUNNER_TEMP/out.txt" 2>&1 && rc=$? || rc=$?
+          cat "$RUNNER_TEMP/out.txt"
+          echo "exit $rc"
+          [[ $rc -ne 0 ]] && grep -q "SHA-1 mismatch" "$RUNNER_TEMP/out.txt"
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version:
+          - rustpython-0.5.0
+          - rustpython-0.6.0
+        os:
+          - ubuntu-24.04
+          - ubuntu-24.04-arm
+          - macos-15
+          - macos-15-intel
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - run: |
+          #envvars
+          export PYENV_ROOT="$GITHUB_WORKSPACE"
+          echo "PYENV_ROOT=$PYENV_ROOT" >> $GITHUB_ENV
+          echo "$PYENV_ROOT/shims:$PYENV_ROOT/bin" >> $GITHUB_PATH
+      - run: |
+          #prerequisites (same as upstream)
+          if test "$RUNNER_OS" == "macOS"; then
+            brew install openssl readline sqlite3 xz tcl-tk@8 libb2 zstd gdbm
+          else
+            pyenv install-prerequisites --all
+          fi
+          rustup update stable
+      - run: |
+          #build (same as upstream)
+          pyenv --debug install ${{ matrix.python-version }} && rc=$? || rc=$?
+          if [[ $rc -ne 0 ]]; then echo config.log:; cat $TMPDIR/python-build*/*/config.log; false; fi
+          pyenv global ${{ matrix.python-version }}
+      - run: |
+          #print version (same as upstream)
+          python --version
+          python -m pip --version
+      - env:
+          EXPECTED_PYTHON: ${{ matrix.python-version }}
+        run: |
+          #check (same as upstream)
+          python -c 'if True:
+            import os, sys, os.path
+            correct_dir = os.path.join(
+              os.environ["PYENV_ROOT"],
+              "versions",
+              os.environ["EXPECTED_PYTHON"],
+              "bin")
+            assert os.path.dirname(sys.executable) == correct_dir'
