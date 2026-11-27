@@ -1,7 +1,7 @@
 name: pyenv_tests
 on:
   push:
-    branches: [master]
+    branches: [master, bench-2802]
   pull_request: {}
 
 permissions:

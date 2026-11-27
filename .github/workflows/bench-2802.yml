@@ -1,0 +1,102 @@
+name: bench-2802
+on:
+  push:
+    branches: [bench-2802]
+
+permissions:
+  contents: read
+
+jobs:
+  bench:
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-24.04
+          - macos-15
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Check out upstream master and this branch side by side
+        run: |
+          git fetch --no-tags https://github.com/pyenv/pyenv.git master
+          git worktree add --detach "$RUNNER_TEMP/base" FETCH_HEAD
+          git worktree add --detach "$RUNNER_TEMP/new" HEAD
+          echo "base: $(git -C "$RUNNER_TEMP/base" log -1 --format='%h %s')"
+          echo "new:  $(git -C "$RUNNER_TEMP/new" log -1 --format='%h %s')"
+      - name: Compare output (base vs new) on edge cases
+        shell: bash
+        run: |
+          set -u
+          T="$RUNNER_TEMP"
+          export PYENV_ROOT="$T/pyenv-root"
+          mkdir -p "$PYENV_ROOT/shims" "$PYENV_ROOT/versions" "$T/custom" "$T/dir with space" "$T/empty-cwd"
+          printf '#!/bin/sh\n' > "$PYENV_ROOT/shims/python3"
+          printf '#!/bin/sh\n' > "$PYENV_ROOT/shims/only-in-shims"
+          printf '#!/bin/sh\n' > "$T/custom/python3"
+          printf '#!/bin/sh\n' > "$T/dir with space/tool-x"
+          chmod +x "$PYENV_ROOT/shims/python3" "$PYENV_ROOT/shims/only-in-shims" "$T/custom/python3" "$T/dir with space/tool-x"
+          cd "$T/empty-cwd"
+          S="$PYENV_ROOT/shims"
+          fail=0
+          check() {
+            local name="$1"; shift
+            local a b
+            a="$(env "$@" "$T/base/libexec/pyenv" which "${CMD}" 2>&1; echo "rc=$?")"
+            b="$(env "$@" "$T/new/libexec/pyenv" which "${CMD}" 2>&1; echo "rc=$?")"
+            if [ "$a" == "$b" ]; then
+              echo "SAME  $name: ${a//$'\n'/ | }"
+            else
+              echo "DIFF  $name"; echo "  base: $a"; echo "  new:  $b"; fail=1
+            fi
+          }
+          CMD=python3
+          check "plain system"          PYENV_VERSION=system PATH="$S:$PATH"
+          check "shims repeated"        PYENV_VERSION=system PATH="$S:$S:$PATH:$S"
+          check "empty PATH entries"    PYENV_VERSION=system PATH="::$S::$PATH:"
+          check "tilde entry"           PYENV_VERSION=system PATH="~/nonexistent:$S:$PATH"
+          check "custom shim path set"  PYENV_VERSION=system PATH="$T/custom:$S:$PATH" _PYENV_SHIM_PATHS_PYTHON3="$T/custom"
+          check "other custom var set"  PYENV_VERSION=system PATH="$T/custom:$S:$PATH" _PYENV_SHIM_PATHS_OTHER="$T/custom"
+          check "empty custom var"      PYENV_VERSION=system PATH="$T/custom:$S:$PATH" _PYENV_SHIM_PATHS_PYTHON3=
+          CMD=only-in-shims
+          check "only the shims dir has it" PYENV_VERSION=system PATH="$S:$S:$PATH"
+          CMD=tool-x
+          check "entry with spaces"     PYENV_VERSION=system PATH="$T/dir with space:$S:$PATH"
+          check "spaces dir as shim"    PYENV_VERSION=system PATH="$T/dir with space:$S:$PATH" _PYENV_SHIM_PATHS_TOOL_X="$T/dir with space"
+          CMD=no-such-command-2802
+          check "not found"             PYENV_VERSION=system PATH="$S:$PATH"
+          CMD=python3
+          check "missing version falls back to system" PYENV_VERSION=9.9.9 PATH="$S:$PATH"
+          exit $fail
+      - name: Time 300 x 'pyenv which python3' (PYENV_VERSION=system, ~30 PATH entries)
+        shell: bash
+        run: |
+          T="$RUNNER_TEMP"
+          export PYENV_ROOT="$T/pyenv-root"
+          export PYENV_VERSION=system
+          LONG_PATH="$PYENV_ROOT/shims"
+          for ((i = 1; i <= 20; i++)); do
+            mkdir -p "$T/pathdir$i"
+            LONG_PATH="$LONG_PATH:$T/pathdir$i"
+          done
+          LONG_PATH="$LONG_PATH:$PATH"
+          IFS=: read -r -a entries <<< "$LONG_PATH"
+          echo "PATH entries: ${#entries[@]}"
+          echo "bash used by pyenv: $(PATH="$LONG_PATH" bash -c 'echo "$BASH_VERSION at $BASH"')"
+          echo "base output: $(PATH="$LONG_PATH" "$T/base/libexec/pyenv" which python3)"
+          echo "new output:  $(PATH="$LONG_PATH" "$T/new/libexec/pyenv" which python3)"
+          TIMEFORMAT='%R'
+          bench() {
+            local dir="$1" i
+            for ((i = 0; i < 300; i++)); do
+              PATH="$LONG_PATH" "$dir/libexec/pyenv" which python3 >/dev/null
+            done
+          }
+          bench "$T/base"; bench "$T/new"   # warm-up
+          for round in 1 2 3; do
+            b="$( { time bench "$T/base"; } 2>&1 )"
+            n="$( { time bench "$T/new"; } 2>&1 )"
+            echo "round $round: base ${b}s  new ${n}s  (300 calls each)"
+          done
