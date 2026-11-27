@@ -1,0 +1,95 @@
+# Fork-only temp CI (rohitmulani63-ops/pyenv), never part of a PR.
+# rustpython-dev after RustPython#9974 (ABI-tagged stdlib dir). Upstream bats suites,
+# plus real installs with the upstream modified_scripts checks.
+name: ci-check-rustpython-abi-lib
+on:
+  push:
+    branches:
+      - ci-check-rustpython-abi-lib
+permissions:
+  contents: read
+jobs:
+  pyenv_tests:
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-24.04
+          - macos-15
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Install prerequisites
+        run: |
+          if test "$RUNNER_OS" == "macOS"; then
+            brew install coreutils fish parallel
+          fi
+      - name: Run tests
+        run: |
+          make test
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version:
+          - rustpython-dev
+        os:
+          - ubuntu-24.04
+          - ubuntu-24.04-arm
+          - macos-15
+          - macos-15-intel
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - run: |
+          export PYENV_ROOT="$GITHUB_WORKSPACE"
+          echo "PYENV_ROOT=$PYENV_ROOT" >> $GITHUB_ENV
+          echo "$PYENV_ROOT/shims:$PYENV_ROOT/bin" >> $GITHUB_PATH
+      - run: |
+          if test "$RUNNER_OS" == "macOS"; then
+            brew install openssl readline sqlite3 xz tcl-tk@8 libb2 zstd gdbm
+          else
+            pyenv install-prerequisites --all
+          fi
+          if [[ "${{ matrix.python-version }}" == rustpython-* ]]; then
+            rustup update stable
+          fi
+      - run: |
+          #build (same as upstream)
+          pyenv --debug install ${{ matrix.python-version }} > "$RUNNER_TEMP/debug.txt" 2>&1 && rc=$? || rc=$?
+          tail -n 60 "$RUNNER_TEMP/debug.txt"
+          [[ $rc -eq 0 ]]
+          pyenv global ${{ matrix.python-version }}
+      - run: |
+          #print version (same as upstream)
+          python --version
+          python -m pip --version
+      - env:
+          EXPECTED_PYTHON: ${{ matrix.python-version }}
+        run: |
+          #check (same as upstream)
+          python -c 'if True:
+            import os, sys, os.path
+            correct_dir = os.path.join(
+              os.environ["PYENV_ROOT"],
+              "versions",
+              os.environ["EXPECTED_PYTHON"],
+              "bin")
+            assert os.path.dirname(sys.executable) == correct_dir'
+      - run: |
+          #extra: stdlib and prefix come from the pyenv prefix, not the build dir
+          ls -l "$PYENV_ROOT/versions/${{ matrix.python-version }}/lib"
+          python -c 'if True:
+            import os, sys
+            prefix = os.path.realpath(os.path.join(os.environ["PYENV_ROOT"], "versions", "${{ matrix.python-version }}"))
+            print(sys.version); print("prefix", sys.prefix); print("os", os.__file__)
+            assert os.path.realpath(sys.prefix) == prefix, sys.prefix
+            assert os.path.realpath(os.__file__).startswith(os.path.join(prefix, "lib")), os.__file__'
+          python -m pip install six
+          python -c 'import six; print("six", six.__version__)'
