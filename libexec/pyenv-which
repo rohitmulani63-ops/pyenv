@@ -44,6 +44,8 @@ do
 done
 
 
+# Usage: remove_from_path <paths> [<varname>]
+# Prints the result, or stores it in <varname> to save a subshell
 remove_from_path() {
   local -a paths_to_remove
   IFS=: read -r -a paths_to_remove <<< "$1"
@@ -57,7 +59,11 @@ remove_from_path() {
     done
   done
   result="${result:1:${#result}-2}"
-  echo "$result"
+  if [ -n "${2:-}" ]; then
+    printf -v "$2" '%s' "$result"
+  else
+    echo "$result"
+  fi
 }
 
 if [ -z "$PYENV_COMMAND" ]; then
@@ -79,13 +85,16 @@ PYENV_COMMAND_PATH=
 
 for version in ${versions[@]+"${versions[@]}"} "$system"; do
   if [ "$version" = "system" ]; then
-    PROGRAM="$(echo "$PYENV_COMMAND" | tr a-z- A-Z_ | sed 's/[^A-Z0-9_]/_/g')"
-    NR_CUSTOM_SHIM_PATHS="_PYENV_SHIM_PATHS_$PROGRAM"
     custom_shims=
-    if [ -n "${!NR_CUSTOM_SHIM_PATHS:-}" ]; then
-      custom_shims=":${!NR_CUSTOM_SHIM_PATHS}"
+    # Only spawn tr and sed when there are custom shim paths to look up
+    if [ -n "${!_PYENV_SHIM_PATHS_*}" ]; then
+      PROGRAM="$(echo "$PYENV_COMMAND" | tr a-z- A-Z_ | sed 's/[^A-Z0-9_]/_/g')"
+      NR_CUSTOM_SHIM_PATHS="_PYENV_SHIM_PATHS_$PROGRAM"
+      if [ -n "${!NR_CUSTOM_SHIM_PATHS:-}" ]; then
+        custom_shims=":${!NR_CUSTOM_SHIM_PATHS}"
+      fi
     fi
-    SEARCH_PATH="$(remove_from_path "${PYENV_ROOT}/shims${custom_shims}")"
+    remove_from_path "${PYENV_ROOT}/shims${custom_shims}" SEARCH_PATH
     PYENV_COMMAND_PATH="$(PATH="$SEARCH_PATH" command -v "$PYENV_COMMAND" || true)"
   else
     if [[ -n $version && -d ${PYENV_ROOT}/versions/${version} ]]; then
