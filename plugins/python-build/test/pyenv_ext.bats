@@ -288,7 +288,7 @@ OUT
   cd "${BATS_TEST_TMPDIR}/rustpython"
   executable target/release/rustpython <<OUT
 #!$BASH
-echo 3.15
+[[ \$* == *abiflags* ]] && printf t || echo 3.15
 OUT
   touch Lib/os.py
   stub cargo "build --release --locked --target-dir target : true"
@@ -300,6 +300,7 @@ OUT
   unstub cargo
 
   [ -f "${INSTALL_ROOT}/lib/python3.15/os.py" ]
+  assert_equal "$(resolve_link "${INSTALL_ROOT}/lib/python3.15t")" "python3.15"
   for name in python python3 python3.15; do
     assert_equal "$(resolve_link "${INSTALL_ROOT}/bin/$name")" "rustpython"
   done
